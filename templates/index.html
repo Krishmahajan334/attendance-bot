@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DKTE Attendance Check</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f2f2f7;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: #333;
+        }
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        h1 {
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            color: #1c1c1e;
+        }
+        input[type="date"] {
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #d1d1d6;
+            border-radius: 12px;
+            font-size: 1rem;
+            box-sizing: border-box;
+            background-color: #f9f9fb;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            background-color: #007aff;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:active {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #d1d1d6;
+            cursor: not-allowed;
+        }
+        .loader {
+            display: none;
+            margin-top: 20px;
+            color: #8e8e93;
+            font-size: 0.9rem;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #007aff;
+            width: 24px;
+            height: 24px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Attendance Checker</h1>
+        <div>
+            <!-- PRN Input -->
+            <label for="prn" style="display:block; text-align:left; margin-bottom:8px; color:#666;">PRN</label>
+            <input type="text" id="prn" value="24UCS056" style="margin-bottom:15px; font-weight:bold;">
+            
+            <!-- Password (DOB) Input - Hidden by default -->
+            <div id="password-container" style="display:none;">
+                <label for="password" style="display:block; text-align:left; margin-bottom:8px; color:#666;">Password (DOB)</label>
+                <input type="date" id="password" style="margin-bottom:15px;">
+            </div>
+
+            <!-- Semester Selection -->
+            <label for="semester" style="display:block; text-align:left; margin-bottom:8px; color:#666;">Semester</label>
+            <select id="semester" style="margin-bottom:15px; width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;">
+                <option value="odd" selected>Odd Semester</option>
+                <option value="even">Even Semester</option>
+            </select>
+
+            <label for="date" style="display:block; text-align:left; margin-bottom:8px; color:#666;">Select Date</label>
+            <input type="date" id="date" value="{{ default_date_iso }}">
+            
+            <button id="btn" onclick="startCheck()">Check Attendance</button>
+            <div id="loader" class="loader">
+                <div class="spinner"></div>
+                Checking... <br>Please keep this tab open.
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Init PRN logic
+        const prnInput = document.getElementById('prn');
+        const passContainer = document.getElementById('password-container');
+        const defaultPrn = "24UCS056";
+
+        prnInput.addEventListener('input', function() {
+            if (this.value.trim() !== defaultPrn) {
+                passContainer.style.display = 'block';
+            } else {
+                passContainer.style.display = 'none';
+            }
+        });
+
+        // Default date if empty
+        const dateInput = document.getElementById('date');
+        if (!dateInput.value) {
+            dateInput.valueAsDate = new Date();
+        }
+
+        async function startCheck() {
+            const btn = document.getElementById('btn');
+            const loader = document.getElementById('loader');
+            const dateVal = document.getElementById('date').value;
+            const prnVal = document.getElementById('prn').value;
+            const passVal = document.getElementById('password').value;
+            const semVal = document.getElementById('semester').value;
+
+            btn.disabled = true;
+            btn.style.display = 'none';
+            loader.style.display = 'block';
+
+            try {
+                // Start Job
+                const response = await fetch('/start_check', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        date: dateVal,
+                        prn: prnVal,
+                        password: passVal,
+                        semester: semVal
+                    })
+                });
+                const data = await response.json();
+                const jobId = data.job_id;
+
+                // Poll Status
+                pollStatus(jobId);
+
+            } catch (e) {
+                alert("Error starting check: " + e);
+                btn.disabled = false;
+                btn.style.display = 'block';
+                loader.style.display = 'none';
+            }
+        }
+
+        async function pollStatus(jobId) {
+            try {
+                const response = await fetch(`/status/${jobId}`);
+                const data = await response.json();
+
+                if (data.status === 'done') {
+                    window.location.href = `/result/${jobId}`;
+                } else if (data.status === 'error') {
+                    alert("An error occurred during checking.");
+                    location.reload();
+                } else {
+                    // Still running, wait and check again
+                    setTimeout(() => pollStatus(jobId), 2000);
+                }
+            } catch (e) {
+                console.error("Polling error", e);
+                setTimeout(() => pollStatus(jobId), 3000);
+            }
+        }
+    </script>
+</body>
+</html>
